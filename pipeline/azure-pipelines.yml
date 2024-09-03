@@ -1,0 +1,129 @@
+trigger:
+- main
+
+resources:
+  containers:
+    - container: mysql
+      image: mysql:9.0
+      networks: 
+      - integrationtests
+      env:
+        MYSQL_ROOT_PASSWORD: "MySql2024!"
+        MYSQL_DATABASE: "dbtests"
+      ports:
+        - 32000:3306
+
+variables:
+  vmImageName: 'ubuntu-latest'
+
+  Path_Tests: './src/BenchmarkingDapperEFCoreCRMMySql'
+  Path_ScriptsMySql: './src/Scripts/'
+  Path_ArtifactsBenchmarking: '/src/BenchmarkingDapperEFCoreCRMMySql/BenchmarkDotNet.Artifacts/results'
+  ArtifactBenchmarkingHtml: 'BenchmarkingDapperEFCoreCRMMySql.Tests.CRMTests-report.html'
+  ArtifactBenchmarkingMarkdown: 'BenchmarkingDapperEFCoreCRMMySql.Tests.CRMTests-report-github.md'
+
+  # Variáveis para execução dos testes de performance
+  BaseEFCore: 'Server=127.0.0.1; Port=32000; Database=BaseCRMADO; Uid=root; Pwd=MySql2024!; SslMode=none; allowPublicKeyRetrieval=true;'
+  BaseDapper: 'Server=127.0.0.1; Port=32000; Database=BaseCRMDapper; Uid=root; Pwd=MySql2024!; SslMode=none; allowPublicKeyRetrieval=true;'
+  BaseDapperContrib: 'Server=127.0.0.1; Port=32000; Database=BaseCRMDapperContrib; Uid=root; Pwd=MySql2024!; SslMode=none; allowPublicKeyRetrieval=true;'
+  BaseADO: 'Server=127.0.0.1; Port=32000; Database=BaseCRMEF; Uid=root; Pwd=MySql2024!; SslMode=none; allowPublicKeyRetrieval=true;'
+
+stages:
+- stage: Tests
+  displayName: Tests stage
+  variables:
+  - group: benchmarkdotnet
+  jobs:
+  - job: Tests
+    displayName: Tests
+    pool:
+      vmImage: $(vmImageName)
+    services:
+      mysql: mysql
+    steps:
+    - script: |
+        cd /usr/bin
+        ls
+      displayName: Exibir arquivos do diretorio /usr/bin (utilitarios instalados)
+    - script: |
+        docker images
+        echo ''
+        docker container ls
+        echo 'Aguardar por 10s a subida da instancia do MySQL...'
+        sleep 10s
+        echo ''
+        docker container ls
+      displayName: Exibir imagens e container em execução
+    - script: |
+        cd $(Path_ScriptsMySql)
+        /usr/bin/mysql --host=0.0.0.0 --port=32000 --user=root --password=MySql2024! --protocol=tcp dbtests < 01-basecrmado.sql
+      displayName: Criar banco BaseCRMADO
+    - script: |
+        cd $(Path_ScriptsMySql)
+        /usr/bin/mysql --host=0.0.0.0 --port=32000 --user=root --password=MySql2024! --protocol=tcp dbtests < 02-basecrmdapper.sql
+      displayName: Criar banco BaseCRMDapper
+    - script: |
+        cd $(Path_ScriptsMySql)
+        /usr/bin/mysql --host=0.0.0.0 --port=32000 --user=root --password=MySql2024! --protocol=tcp dbtests < 03-basecrmdappercontrib.sql
+      displayName: Criar banco BaseCRMDapperContrib
+    - script: |
+        cd $(Path_ScriptsMySql)
+        /usr/bin/mysql --host=0.0.0.0 --port=32000 --user=root --password=MySql2024! --protocol=tcp dbtests < 04-basecrmef.sql
+      displayName: Criar banco BaseCRMEF
+    - script: |
+        cd $(Path_Tests)
+        ls
+        dotnet run --filter BenchmarkingDapperEFCoreCRMMySql.Tests.* -c Release
+      displayName: Executar benchmarking com testes de performance - Entity Framework Core x Dapper x ADO x Dapper.Contrib
+      env:
+        BaseEFCoreConnectionString: $(BaseEFCore)
+        BaseDapperConnectionString: $(BaseDapper)
+        BaseDapperContribConnectionString: $(BaseDapperContrib)
+        BaseADOConnectionString: $(BaseADO)
+        NumeroContatosPorCompanhia: $(NoContatosPorCompanhia)
+    - script: |
+        cd $(Build.SourcesDirectory)/$(Path_ArtifactsBenchmarking)
+        pwd
+        ls
+      displayName: Exibir arquivos gerados como resultado dos testes
+    - task: PublishHtmlReport@1
+      inputs:
+        reportDir: '$(Build.SourcesDirectory)/$(Path_ArtifactsBenchmarking)/$(ArtifactBenchmarkingHtml)'
+      displayName: Publicar resultado no formato HTML
+    - task: PublishMarkdownReports@1
+      inputs:
+        contentPath: '$(Build.SourcesDirectory)/$(Path_ArtifactsBenchmarking)'
+        indexFile: '$(ArtifactBenchmarkingMarkdown)'
+      displayName: Publicar resultado no formato Markdown
+    - script: |
+        echo '*** Empresas ***'
+        /usr/bin/mysql --host=0.0.0.0 --port=32000 --user=root --password=MySql2024! --protocol=tcp dbtests <<< "USE BaseCRMADO; SELECT * FROM Empresas ORDER BY IdEmpresa LIMIT 10 \G;"
+        echo ''
+        echo '*** Contatos ***'
+        /usr/bin/mysql --host=0.0.0.0 --port=32000 --user=root --password=MySql2024! --protocol=tcp dbtests <<< "USE BaseCRMADO; SELECT * FROM Contatos ORDER BY IdContato LIMIT 30 \G;"
+      condition: always() 
+      displayName: Exibir amostragem de registros criados na base BaseCRMADO
+    - script: |
+        echo '*** Empresas ***'
+        /usr/bin/mysql --host=0.0.0.0 --port=32000 --user=root --password=MySql2024! --protocol=tcp dbtests <<< "USE BaseCRMDapper; SELECT * FROM Empresas ORDER BY IdEmpresa LIMIT 10 \G;"
+        echo ''
+        echo '*** Contatos ***'
+        /usr/bin/mysql --host=0.0.0.0 --port=32000 --user=root --password=MySql2024! --protocol=tcp dbtests <<< "USE BaseCRMDapper; SELECT * FROM Contatos ORDER BY IdContato LIMIT 30 \G;"
+      condition: always() 
+      displayName: Exibir amostragem de registros criados na base BaseCRMDapper
+    - script: |
+        echo '*** Empresas ***'
+        /usr/bin/mysql --host=0.0.0.0 --port=32000 --user=root --password=MySql2024! --protocol=tcp dbtests <<< "USE BaseCRMDapperContrib; SELECT * FROM Empresas ORDER BY IdEmpresa LIMIT 10 \G;"
+        echo ''
+        echo '*** Contatos ***'
+        /usr/bin/mysql --host=0.0.0.0 --port=32000 --user=root --password=MySql2024! --protocol=tcp dbtests <<< "USE BaseCRMDapperContrib; SELECT * FROM Contatos ORDER BY IdContato LIMIT 30 \G;"
+      condition: always() 
+      displayName: Exibir amostragem de registros criados na base BaseCRMDapperContrib
+    - script: |
+        echo '*** Empresas ***'
+        /usr/bin/mysql --host=0.0.0.0 --port=32000 --user=root --password=MySql2024! --protocol=tcp dbtests <<< "USE BaseCRMEF; SELECT * FROM Empresas ORDER BY IdEmpresa LIMIT 10 \G;"
+        echo ''
+        echo '*** Contatos ***'
+        /usr/bin/mysql --host=0.0.0.0 --port=32000 --user=root --password=MySql2024! --protocol=tcp dbtests <<< "USE BaseCRMEF; SELECT * FROM Contatos ORDER BY IdContato LIMIT 30 \G;"
+      condition: always() 
+      displayName: Exibir amostragem de registros criados na base BaseCRMEF

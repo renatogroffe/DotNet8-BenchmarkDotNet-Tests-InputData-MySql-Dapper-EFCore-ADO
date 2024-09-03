@@ -1,0 +1,12 @@
+services:
+  mysql:
+    image: mysql:9.0
+    volumes:
+      - ./01-basecrmado.sql:/docker-entrypoint-initdb.d/01-basecrmado.sql
+      - ./02-basecrmdapper.sql:/docker-entrypoint-initdb.d/02-basecrmdapper.sql
+      - ./03-basecrmdappercontrib.sql:/docker-entrypoint-initdb.d/03-basecrmdappercontrib.sql
+      - ./04-basecrmef.sql:/docker-entrypoint-initdb.d/04-basecrmef.sql
+    environment:
+      MYSQL_ROOT_PASSWORD: "MySql2024!"
+    ports:
+      - "3306:3306"
